@@ -40,6 +40,9 @@ RECV_TIMEOUT = 2.0
 # How long to wait for the server process to start.
 STARTUP_TIMEOUT = 6.0
 
+# Files that must exist in the source directory.
+REQUIRED_FILES = ["mud.py", "homepage.py", "commands.py", "persistence.py", "auth.py", "sysinfo.py", "microdot"]
+
 # ---------------------------------------------------------------------------
 # Colour helpers (no dependencies)
 # ---------------------------------------------------------------------------
@@ -427,6 +430,7 @@ async def test_non_admin():
         ("describe",          "describe Something"),
         ("delete direction",  "delete direction north"),
         ("delete room",       "delete room library"),
+        ("sysinfo",           "sysinfo"),
     ]:
         resp = await send_and_recv(ws, cmd)
         _record(group, f"{cmd_name} rejected", "not allowed" in resp.lower(), resp[:120])
@@ -445,8 +449,22 @@ async def test_admin_help():
     resp = await send_and_recv(ws, "help")
     _record(group, "help shows admin section", "Admin commands" in resp, resp[:120])
 
-    for kw in ["teleport", "describe", "create room", "delete room", "list rooms"]:
+    for kw in ["teleport", "describe", "create room", "delete room", "list rooms", "sysinfo"]:
         _record(group, f"help mentions '{kw}'", kw in resp, "")
+
+    await ws.close()
+
+
+async def test_sysinfo():
+    group = "Sysinfo"
+    ws, _ = await login(ADMIN_NAME, ADMIN_PW)
+
+    resp = await send_and_recv(ws, "sysinfo")
+    _record(group, "sysinfo returns output", len(resp) > 50, f"length={len(resp)}")
+    _record(group, "sysinfo has platform", "platform" in resp.lower(), resp[:120])
+    _record(group, "sysinfo has version", "version" in resp.lower(), resp[:120])
+    _record(group, "sysinfo has RAM section", "ram" in resp.lower(), resp[:200])
+    _record(group, "sysinfo has storage section", "storage" in resp.lower(), resp[:200])
 
     await ws.close()
 
@@ -476,11 +494,11 @@ async def test_persistence():
     _record(group, "rooms.json exists", ok, rooms_path)
 
     if ok:
-        with open(rooms_path) as f:
+        with open(rooms_path, encoding='utf-8') as f:
             data = json.load(f)
         _record(group, "rooms.json is valid JSON", isinstance(data, dict), f"{len(data)} rooms")
         # Check indentation (pretty-printed)
-        raw = open(rooms_path).read()
+        raw = open(rooms_path, encoding='utf-8').read()
         _record(group, "rooms.json is pretty-printed", "\n  " in raw, "")
 
     players_path = os.path.join(store, "known_players.json")
@@ -488,7 +506,7 @@ async def test_persistence():
     _record(group, "known_players.json exists", ok, players_path)
 
     if ok:
-        with open(players_path) as f:
+        with open(players_path, encoding='utf-8') as f:
             data = json.load(f)
         _record(group, "known_players.json is valid JSON", isinstance(data, dict), f"{len(data)} players")
         _record(group, "admin account persisted", any(k.lower() == ADMIN_NAME.lower() for k in data), "")
@@ -516,7 +534,7 @@ def prepare_server(source_dir):
     global SERVER_DIR
     SERVER_DIR = tempfile.mkdtemp(prefix="mud_test_")
     # Copy source files
-    for item in ["microdot", "homepage.py", "mud.py"]:
+    for item in REQUIRED_FILES:
         src = os.path.join(source_dir, item)
         dst = os.path.join(SERVER_DIR, item)
         if os.path.isdir(src):
@@ -526,11 +544,11 @@ def prepare_server(source_dir):
 
     # Patch ADMINS and PORT in mud.py
     mud_path = os.path.join(SERVER_DIR, "mud.py")
-    with open(mud_path) as f:
+    with open(mud_path, encoding='utf-8') as f:
         code = f.read()
     code = code.replace("ADMINS = set()", f"ADMINS = {{'{ADMIN_NAME}'}}")
     code = code.replace("PORT = 5000", f"PORT = {PORT}")
-    with open(mud_path, "w") as f:
+    with open(mud_path, "w", encoding='utf-8') as f:
         f.write(code)
 
     return SERVER_DIR
@@ -588,6 +606,7 @@ async def run_all_tests():
         ("Admin deletion",     test_admin_deletion),
         ("Non-admin",          test_non_admin),
         ("Admin help",         test_admin_help),
+        ("Sysinfo",            test_sysinfo),
         ("Input limits",       test_say_length),
         ("Persistence",        test_persistence),
     ]
@@ -608,7 +627,7 @@ def main():
         source_dir = os.path.dirname(os.path.abspath(__file__))
 
     # Verify source has what we need.
-    for needed in ["mud.py", "homepage.py", "microdot"]:
+    for needed in REQUIRED_FILES:
         if not os.path.exists(os.path.join(source_dir, needed)):
             print(f"{RED}ERROR:{RESET} '{needed}' not found in {source_dir}")
             print("Run this script from the v0.3 directory, or pass its path as an argument.")
