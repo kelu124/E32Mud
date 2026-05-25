@@ -1,4 +1,3 @@
-
 def html(PORT):
   return """<!DOCTYPE html>
 <html lang=\"en\">
@@ -19,35 +18,45 @@ def html(PORT):
     const ws = new WebSocket('ws://' + location.hostname + ':"""+str(PORT)+"""/ws');
     const output = document.getElementById('output');
     const input = document.getElementById('input');
+    let awaitingName = true; // first thing the user types goes to localStorage
+
     function print(message) {
       output.textContent += message + '\\n';
       output.scrollTop = output.scrollHeight;
     }
+
     ws.onopen = () => {
       console.log('[Connected to MUD]');
       const name = localStorage.getItem('player_name');
-      if (name) ws.send(`__auth ${name}`);
+      if (name) {
+        ws.send('__auth ' + name);
+        awaitingName = false;
+      }
     };
+
     ws.onmessage = (event) => {
       const data = event.data;
       print(data);
+      // If the server asks for a name again (e.g. wrong password), reset.
       if (data.toLowerCase().includes('enter your name')) {
-        input.placeholder = "Enter your name...";
+        localStorage.removeItem('player_name');
+        awaitingName = true;
       }
     };
+
     ws.onclose = () => print('[Disconnected]');
+
     input.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') {
-        const command = input.value.trim();
-        if (command !== '') {
-          print('> ' + command);
-          ws.send(command);
-          if (command.toLowerCase().startsWith('name ')) {
-            const parts = command.split(' ');
-            if (parts.length > 1) localStorage.setItem('player_name', parts[1]);
-          }
-          input.value = '';
+        const command = input.value;
+        if (command.trim() === '') return;
+        print('> ' + command);
+        ws.send(command);
+        if (awaitingName) {
+          localStorage.setItem('player_name', command.trim());
+          awaitingName = false;
         }
+        input.value = '';
       }
     });
   </script>
